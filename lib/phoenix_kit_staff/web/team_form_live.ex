@@ -16,7 +16,9 @@ defmodule PhoenixKitStaff.Web.TeamFormLive do
 
     socket =
       socket
-      |> mount_multilang()
+      |> mount_multilang(
+        open_on: if(socket.assigns.live_action == :edit, do: :viewing_language, else: :primary)
+      )
       |> assign(dept_options: Enum.map(departments, &{&1.name, &1.uuid}))
       |> apply_action(socket.assigns.live_action, params)
 

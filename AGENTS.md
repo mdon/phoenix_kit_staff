@@ -92,7 +92,7 @@ Repo-local aliases:
 - Department, Team, Person, Skill and Employment carry a `translations` JSONB holding **non-primary-language overrides only** (`%{"es-ES" => %{"name" => "…"}}`); primary values stay in their columns.
 - Translatable fields: Department/Team/Skill `name` + `description`; Person `job_title`, `bio`, `notes` (not `name`, not `work_location`); Employment `job_title`.
 - Reads go through `<Schema>.localized_<field>/2` (primary fallback). Changesets validate the shape with `L10n.valid_translations_shape?/1`.
-- Forms use core `PhoenixKitWeb.Components.MultilangForm` (`<.multilang_tabs>`, `<.multilang_fields_wrapper>`, `<.translatable_field>`); `Web.Helpers.merge_translations_attrs/3` folds the per-language params back into `translations`.
+- Forms use core `PhoenixKitWeb.Components.MultilangForm` (`<.multilang_tabs>`, `<.multilang_fields_wrapper>`, `<.translatable_field>`); `Web.Helpers.merge_translations_attrs/3` folds the per-language params back into `translations`. An `:edit` form opens on the viewing language (`mount_multilang(open_on: :viewing_language)`); `:new` opens on the main language, which holds the required fields.
 
 ### Skills
 
