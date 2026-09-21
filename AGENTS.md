@@ -76,8 +76,8 @@ Repo-local aliases:
 
 ### Activity logging
 
-- Every mutation logs through the `PhoenixKitStaff.Activity` wrapper (`log/2`); never call `PhoenixKit.Activity.log/1` directly. The wrapper carries the `Code.ensure_loaded?` guard, rescue and `:exit` catch, so it never crashes the caller.
-- Logging happens at the **LiveView layer** on success: the LiveView owns `actor_uuid` (`Activity.actor_uuid(socket)` reads `@phoenix_kit_current_user`) and user intent; contexts stay pure.
+- Every mutation logs through the `PhoenixKitStaff.Activity` wrapper (`log/2`), which is core's never-raising `PhoenixKit.Activity.log/3` under the `"staff"` module key.
+- Logging happens at the **LiveView layer** on success: the LiveView owns `actor_uuid` (`Activity.actor_uuid(socket)` is core's `PhoenixKitWeb.Actor` — the scope first, then the bare current user) and user intent; contexts stay pure.
 - The failure side is logged too: `{:error, _}` branches of `handle_event` call `Web.Helpers.log_operation_error/3` with the same action string, `metadata.db_pending: true`, and PII-safe metadata (changeset error **keys** only, atom reasons as strings, everything else `error_kind: "other"`). Validate cycles never log.
 - Action strings follow `"staff.<resource>_<verb>"`:
   - `staff.person_created/updated/deleted`, `staff.person_trashed/restored`, `staff.people_bulk_trashed/restored/deleted`
@@ -150,7 +150,7 @@ Repo-local aliases:
 ```
 lib/phoenix_kit_staff.ex                # PhoenixKit.Module: key, enabled?, tabs, __tab_label_strings__
 lib/phoenix_kit_staff/
-├── activity.ex                         # Activity wrapper (log/2, actor_uuid/1); never call core directly
+├── activity.ex                         # Activity wrapper (log/2 under "staff", actor_uuid/1)
 ├── activity_labels.ex                  # Events-tab humanizer (action → {icon, label})
 ├── attachments.ex                      # Folder-scoped person media + avatar pointer
 ├── departments.ex / teams.ex           # CRUD contexts (list/1, get/1, create/1, update/2, delete/1)

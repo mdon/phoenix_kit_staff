@@ -52,12 +52,11 @@ defmodule PhoenixKitStaff.Web.Helpers do
       `error_atom` keys — caller-supplied collisions on those keys are
       ignored so the audit-feed contract stays stable.
 
-  Returns the underlying `Activity.log/2` return value (`:ok`,
-  `{:ok, _entry}`, `{:error, _}`, `:activity_unavailable`); never
-  raises.
+  Returns the underlying `Activity.log/2` return value (`{:ok, _entry}`
+  or `{:error, _}`); never raises.
   """
   @spec log_operation_error(String.t(), Phoenix.LiveView.Socket.t(), keyword()) ::
-          :ok | :activity_unavailable | {:ok, struct()} | {:error, any()}
+          {:ok, struct()} | {:error, any()}
   def log_operation_error(action, socket, opts) when is_binary(action) and is_list(opts) do
     reason = Keyword.fetch!(opts, :reason)
     resource_type = Keyword.fetch!(opts, :resource_type)
