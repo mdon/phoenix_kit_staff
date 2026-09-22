@@ -44,6 +44,10 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  defmodule NameHook do
+    def name(_subject, _actor), do: {:ok, "Host picked name"}
+  end
+
   defmodule RaisingHook do
     def parent(:person, _actor, _subject), do: raise("boom")
     def parent(_, _, _), do: nil
@@ -126,6 +130,22 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
 
     actions = MediaReorganizer.plan(nil, [])
     refute Enum.any?(actions, &(&1.kind == :person and &1.label == person.name))
+  end
+
+  test "a host folder-name hook is never asked: uploads only ever use the deterministic name" do
+    on_exit(fn -> Application.delete_env(:phoenix_kit_staff, :attachments_folder_name) end)
+    Application.put_env(:phoenix_kit_staff, :attachments_folder_name, {NameHook, :name})
+
+    person = fixture_person()
+    {:ok, target} = Storage.create_folder(%{name: "Staff"})
+
+    {:ok, _folder} =
+      Storage.create_folder(%{name: "staff-person-#{person.uuid}", parent_uuid: target.uuid})
+
+    Process.put(:target_folder, target.uuid)
+    hook_on()
+
+    assert MediaReorganizer.plan(nil, []) == []
   end
 
   test "counts include a trashed file — engine re-measures the same way at apply time" do
