@@ -67,6 +67,24 @@ defmodule PhoenixKitStaff.Integration.AttachmentsAvatarTest do
     assert updated.metadata["trashed_from_status"] == "active"
   end
 
+  test "an avatar change from a stale copy of the person keeps keys written since" do
+    person = fixture_person()
+    photo = own_image!(person)
+
+    # Another session writes a metadata key after this copy was loaded.
+    {:ok, _} =
+      person
+      |> Ecto.Changeset.change(metadata: %{"trashed_from_status" => "active"})
+      |> repo().update()
+
+    {:ok, updated} = Attachments.set_avatar(person, photo.uuid)
+    assert updated.metadata == %{"trashed_from_status" => "active", "avatar_uuid" => photo.uuid}
+    assert repo().reload(person).metadata == updated.metadata
+
+    {:ok, cleared} = Attachments.clear_avatar(person)
+    assert cleared.metadata == %{"trashed_from_status" => "active"}
+  end
+
   test "only one of the person's own images can become the avatar" do
     person = fixture_person()
     other = fixture_person()

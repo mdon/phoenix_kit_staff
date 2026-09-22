@@ -40,6 +40,8 @@ defmodule PhoenixKitStaff.Attachments do
 
   require Logger
 
+  import Ecto.Query, only: [from: 2]
+
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, Folder, ResourceFolders}
   alias PhoenixKit.Utils.Format
@@ -47,6 +49,7 @@ defmodule PhoenixKitStaff.Attachments do
 
   @images_folder_name "Images"
   @avatar_key "avatar_uuid"
+  @avatar_pointer {:metadata, @avatar_key}
   @avatar_pointer {:metadata, "avatar_uuid"}
   # Inline grid is unpaginated; cap the query so a pathological folder can't
   # freeze the tab. The picker uploads ≤20/submit, so this is generous.
@@ -300,16 +303,26 @@ defmodule PhoenixKitStaff.Attachments do
   Authorizes the pointer: `file_uuid` must be a live image in (or linked
   into) the person's own `Images` folder — a forged event cannot point the
   avatar at an arbitrary file elsewhere in storage
-  (`{:error, :not_person_image}`). Refuses a trashed person
+  (`{:error, :not_person_image}`). The check and the write are one step
+  (`ResourceFolders.point_at/6`), so the file cannot leave the folder in
+  between, and only the avatar key is written. Refuses a trashed person
   (`{:error, :person_trashed}`) — a removed person shouldn't gain a new
   profile photo; clearing the avatar stays unguarded.
   """
   @spec set_avatar(Person.t(), binary()) :: {:ok, Person.t()} | {:error, term()}
   def set_avatar(%Person{} = person, file_uuid) when is_binary(file_uuid) and file_uuid != "" do
-    cond do
-      Person.trashed?(person) -> {:error, :person_trashed}
-      avatar_candidate?(person.uuid, file_uuid) -> put_metadata(person, @avatar_key, file_uuid)
-      true -> {:error, :not_person_image}
+    if Person.trashed?(person) do
+      {:error, :person_trashed}
+    else
+      images = folder_uuid(person.uuid, :images)
+
+      case ResourceFolders.point_at(Person, person.uuid, @avatar_pointer, file_uuid, images,
+             only: :images
+           ) do
+        :ok -> with_fresh_metadata(person)
+        {:error, :not_held} -> {:error, :not_person_image}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -328,14 +341,19 @@ defmodule PhoenixKitStaff.Attachments do
 
   @doc "Clears the person's avatar pointer."
   @spec clear_avatar(Person.t()) :: {:ok, Person.t()} | {:error, term()}
-  def clear_avatar(%Person{} = person), do: put_metadata(person, @avatar_key, nil)
+  def clear_avatar(%Person{} = person) do
+    case ResourceFolders.write_pointer(Person, person.uuid, @avatar_pointer, nil) do
+      :ok -> with_fresh_metadata(person)
+      error -> error
+    end
+  end
 
-  defp put_metadata(person, key, value) do
-    metadata = person.metadata || %{}
-
-    metadata =
-      if is_nil(value), do: Map.delete(metadata, key), else: Map.put(metadata, key, value)
-
-    person |> Ecto.Changeset.change(metadata: metadata) |> repo().update()
+  # The pointer is written in place, one key; hand the caller its own struct
+  # (preloads and all) with the metadata as the row now holds it.
+  defp with_fresh_metadata(%Person{uuid: uuid} = person) do
+    case repo().one(from(p in Person, where: p.uuid == ^uuid, select: p.metadata)) do
+      nil -> {:error, :not_found}
+      metadata -> {:ok, %{person | metadata: metadata}}
+    end
   end
 end
