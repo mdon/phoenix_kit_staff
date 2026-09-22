@@ -40,10 +40,8 @@ defmodule PhoenixKitStaff.Attachments do
 
   require Logger
 
-  import Ecto.Query, warn: false
-
   alias PhoenixKit.Modules.Storage
-  alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
+  alias PhoenixKit.Modules.Storage.{File, Folder, ResourceFolders}
   alias PhoenixKitStaff.Schemas.Person
 
   @images_folder_name "Images"
@@ -73,112 +71,56 @@ defmodule PhoenixKitStaff.Attachments do
 
   def folder_uuid(person_uuid, :images, actor_uuid) do
     case get_root_folder(person_uuid, actor_uuid) do
-      %Folder{uuid: root} -> uuid_of(get_folder(@images_folder_name, root))
-      _ -> nil
+      %Folder{uuid: root} ->
+        uuid_of(
+          quietly("get_folder", nil, fn ->
+            ResourceFolders.find_under(@images_folder_name, root)
+          end)
+        )
+
+      _ ->
+        nil
     end
   end
 
   @doc """
   Find-or-create the folder for `kind`, returning `{:ok, uuid}` or
-  `{:error, reason}`. Race-safe: a lost create (unique `[:name, :parent_uuid]`)
-  re-resolves the winner. Call when an action needs the folder to exist
-  (opening the picker / handling a selection).
+  `{:error, :folder_unavailable}`. Race-safe: a lost create (unique
+  `[:name, :parent_uuid]`) re-resolves the winner. Call when an action needs
+  the folder to exist (opening the picker / handling a selection).
   """
   @spec ensure_folder(binary(), :files | :images, binary() | nil) ::
           {:ok, binary()} | {:error, term()}
   def ensure_folder(person_uuid, :files, actor_uuid) do
     name = root_folder_name(person_uuid)
     parent_uuid = parent_folder_uuid(:person, actor_uuid, person_uuid)
-    find_or_create(name, parent_uuid, actor_uuid, fn -> find_root_folder(name, parent_uuid) end)
+
+    name
+    |> ResourceFolders.ensure(parent_uuid, actor_uuid,
+      lookup: fn -> find_root_folder(name, parent_uuid) end
+    )
+    |> ensured()
   end
 
+  # "Images" is not a unique name, so it is only ever looked up inside the
+  # person's folder — never at the storage root, where a host's own "Images"
+  # folder may live.
   def ensure_folder(person_uuid, :images, actor_uuid) do
     with {:ok, root} <- ensure_folder(person_uuid, :files, actor_uuid) do
-      find_or_create(@images_folder_name, root, actor_uuid, fn ->
-        get_folder(@images_folder_name, root)
-      end)
+      @images_folder_name |> ResourceFolders.ensure(root, actor_uuid) |> ensured()
     end
   end
 
-  defp find_or_create(name, parent_uuid, user_uuid, lookup) do
-    case lookup.() do
-      %Folder{uuid: uuid} ->
-        {:ok, uuid}
-
-      nil ->
-        case Storage.create_folder(%{name: name, parent_uuid: parent_uuid, user_uuid: user_uuid}) do
-          {:ok, %Folder{uuid: uuid}} ->
-            {:ok, uuid}
-
-          # Lost the create race against a concurrent first-upload — the
-          # unique [:name, :parent_uuid] constraint rejected us; re-resolve.
-          {:error, %Ecto.Changeset{}} ->
-            case lookup.() do
-              %Folder{uuid: uuid} -> {:ok, uuid}
-              _ -> {:error, :folder_unavailable}
-            end
-        end
-    end
-  rescue
-    error ->
-      Logger.warning("[Staff] ensure_folder #{name} failed: #{inspect(error)}")
-      {:error, :folder_unavailable}
-  end
+  defp ensured({:ok, %Folder{uuid: uuid}}), do: {:ok, uuid}
+  defp ensured({:error, _reason}), do: {:error, :folder_unavailable}
 
   @doc false
   # Host-configured parent folder for `:person`; `nil` = storage root (default).
   # Contract: `fun(:person, actor_uuid, subject)` (preferred) or `fun(:person, actor_uuid)`;
-  # `subject` is the person uuid.
-  def parent_folder_uuid(kind, actor_uuid, subject \\ nil) do
-    case Application.get_env(:phoenix_kit_staff, :attachments_parent_folder) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        result =
-          cond do
-            Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
-              apply(mod, fun, [kind, actor_uuid, subject])
-
-            Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
-              apply(mod, fun, [kind, actor_uuid])
-
-            true ->
-              nil
-          end
-
-        normalize_parent(kind, result)
-
-      _ ->
-        nil
-    end
-  rescue
-    error ->
-      Logger.warning("[Staff] parent folder hook failed for #{inspect(kind)}: #{inspect(error)}")
-      nil
-  catch
-    :exit, reason ->
-      Logger.warning("[Staff] parent folder hook exited for #{inspect(kind)}: #{inspect(reason)}")
-      nil
-  end
-
-  # Cast + downcase, the same normalisation `MediaReorganizer` applies to the
-  # hook's answer: an upper-cased uuid would otherwise miss `root_rank/2`'s
-  # parent match, and a non-uuid string would reach `Storage.create_folder/1`
-  # and fail every upload. Anything unusable falls back to root, like a hook
-  # that raised.
-  defp normalize_parent(kind, {:ok, uuid}) when is_binary(uuid) do
-    case Ecto.UUID.cast(uuid) do
-      {:ok, cast} ->
-        String.downcase(cast)
-
-      :error ->
-        Logger.warning(
-          "[Staff] parent folder hook returned a non-uuid for #{inspect(kind)}: #{inspect(uuid)}"
-        )
-
-        nil
-    end
-  end
-
-  defp normalize_parent(_kind, _result), do: nil
+  # `subject` is the person uuid. A failing hook or a non-uuid answer falls back
+  # to the root, logged (`ResourceFolders.parent_uuid/4`).
+  def parent_folder_uuid(kind, actor_uuid, subject \\ nil),
+    do: ResourceFolders.parent_uuid(:phoenix_kit_staff, kind, actor_uuid, subject)
 
   defp get_root_folder(person_uuid, actor_uuid) do
     find_root_folder(
@@ -188,82 +130,53 @@ defmodule PhoenixKitStaff.Attachments do
   end
 
   # The root name embeds the person uuid, so every folder carrying it is this
-  # person's wherever it sits. Prefer the configured parent, then the root
+  # person's wherever it sits: the configured parent first, then the root
   # (folders that predate the hook), then any other parent (the hook's answer
-  # changed, e.g. it varies by actor) — oldest first within a rank, so the
-  # answer never depends on who is asking. Live folders only: the
-  # `[:name, :parent_uuid]` unique index is partial (`trashed_at IS NULL`), so
-  # a trashed twin can sit next to the live folder (e.g. after a media
-  # reorganizer move) and, being older, would otherwise win the tie.
+  # changed, e.g. it varies by actor). Live folders only.
   defp find_root_folder(name, parent_uuid) do
-    from(f in Folder,
-      where: f.name == ^name and is_nil(f.trashed_at),
-      order_by: [asc: f.uuid]
-    )
-    |> repo().all()
-    |> Enum.min_by(&root_rank(&1, parent_uuid), fn -> nil end)
-  rescue
-    error ->
-      Logger.warning("[Staff] get_folder #{name} failed: #{inspect(error)}")
-      nil
-  end
-
-  defp root_rank(%Folder{parent_uuid: parent_uuid}, parent_uuid) when is_binary(parent_uuid),
-    do: 0
-
-  defp root_rank(%Folder{parent_uuid: nil}, _), do: 1
-  defp root_rank(%Folder{}, _), do: 2
-
-  defp get_folder(name, parent_uuid) do
-    from(f in Folder,
-      where: f.name == ^name and f.parent_uuid == ^parent_uuid and is_nil(f.trashed_at),
-      limit: 1
-    )
-    |> repo().one()
-  rescue
-    error ->
-      Logger.warning("[Staff] get_folder #{name} failed: #{inspect(error)}")
-      nil
+    quietly("get_folder", nil, fn ->
+      ResourceFolders.find_named(name, parent_uuid, anywhere: true)
+    end)
   end
 
   defp uuid_of(%Folder{uuid: uuid}), do: uuid
   defp uuid_of(_), do: nil
 
+  # A read on a render path: a failure is logged and answers `default`.
+  defp quietly(what, default, fun) do
+    fun.()
+  rescue
+    error ->
+      Logger.warning("[Staff] #{what} failed: #{inspect(error)}")
+      default
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "[Staff] #{what} failed: #{ResourceFolders.describe_failure({:exit, reason})}"
+      )
+
+      default
+  end
+
   # ── Listing ────────────────────────────────────────────────────────
 
   @doc """
   Files attached to `folder_uuid` (home-folder files plus those linked in via
-  `FolderLink`), newest first, excluding trashed. `:only` narrows by type:
-  `:images` (file_type == "image"), `:non_images` (everything else), or `:all`
-  (default). Defensive — keeps a tab showing only its own kind even if a stray
-  file of the other kind landed in the folder.
+  `FolderLink`), newest first, excluding trashed and system-managed ones.
+  `:only` narrows by type: `:images` (file_type == "image"), `:non_images`
+  (everything else), or `:all` (default). Defensive — keeps a tab showing only
+  its own kind even if a stray file of the other kind landed in the folder.
   """
   @spec list_files(binary() | nil, keyword()) :: [File.t()]
   def list_files(nil, _opts), do: []
 
   def list_files(folder_uuid, opts) do
-    linked = from(fl in FolderLink, where: fl.folder_uuid == ^folder_uuid, select: fl.file_uuid)
-
-    base =
-      from(f in File,
-        where:
-          (f.folder_uuid == ^folder_uuid or f.uuid in subquery(linked)) and f.status != "trashed",
-        order_by: [desc: f.inserted_at],
+    quietly("list_files #{folder_uuid}", [], fn ->
+      ResourceFolders.list_files(folder_uuid,
+        only: Keyword.get(opts, :only, :all),
         limit: @list_limit
       )
-
-    query =
-      case Keyword.get(opts, :only, :all) do
-        :images -> where(base, [f], f.file_type == "image")
-        :non_images -> where(base, [f], f.file_type != "image")
-        _ -> base
-      end
-
-    repo().all(query)
-  rescue
-    error ->
-      Logger.warning("[Staff] list_files #{folder_uuid} failed: #{inspect(error)}")
-      []
+    end)
   end
 
   @doc "Whether the file with this uuid is an image (by Storage `file_type`)."
@@ -277,123 +190,57 @@ defmodule PhoenixKitStaff.Attachments do
   # ── Attach / detach ────────────────────────────────────────────────
 
   @doc """
-  Ensures `file_uuid` is attached to `folder_uuid`: a no-op if already home
-  there (the modal's scoped uploads land here directly); adopts an orphan file
-  as home; otherwise adds a `FolderLink` so a file picked from elsewhere
-  appears here without being moved from its owner.
+  Ensures `file_uuid` is attached to `folder_uuid` by core's rule: a no-op if
+  already there (the modal's scoped uploads land here directly); adopts an
+  orphan file as home; otherwise adds a `FolderLink` so a file picked from
+  elsewhere appears here without being moved from its owner. Always `:ok`; a
+  failure is logged.
   """
   @spec attach(binary(), binary()) :: :ok
   def attach(file_uuid, folder_uuid) do
-    case Storage.get_file(file_uuid) do
-      nil ->
+    case ResourceFolders.attach(file_uuid, folder_uuid) do
+      {:ok, _outcome} ->
         :ok
 
-      %File{folder_uuid: ^folder_uuid} ->
-        :ok
-
-      %File{folder_uuid: nil} = file ->
-        file |> Ecto.Changeset.change(%{folder_uuid: folder_uuid}) |> repo().update()
-        :ok
-
-      %File{} ->
-        %FolderLink{}
-        |> FolderLink.changeset(%{folder_uuid: folder_uuid, file_uuid: file_uuid})
-        |> repo().insert(on_conflict: :nothing, conflict_target: [:folder_uuid, :file_uuid])
+      {:error, reason} ->
+        Logger.warning(
+          "[Staff] attach #{file_uuid} failed: #{ResourceFolders.describe_failure(reason)}"
+        )
 
         :ok
     end
-  rescue
-    error ->
-      Logger.warning("[Staff] attach #{file_uuid} failed: #{inspect(error)}")
-      :ok
   end
 
   @doc """
-  Removes a file from `folder_uuid`. If the file's home is this folder and it
-  is not linked elsewhere → soft-trash it (recoverable in the media trash). If
-  it is also linked elsewhere → promote a link to home (keeps it alive). If it
-  is here only via a `FolderLink` → just drop the link. Mirrors core's
-  non-destructive convention; never hard-deletes a shared asset.
+  Removes a file from `folder_uuid` by core's rule: a link is dropped; a file
+  homed here moves to a live folder that also links it, or is soft-trashed
+  (recoverable in the media trash) when nothing else holds it. Never
+  hard-deletes a shared asset, never touches a file that is not here.
   """
   @spec detach(binary(), binary() | nil) :: :ok | {:error, term()}
-  def detach(_file_uuid, nil), do: :ok
-
   def detach(file_uuid, folder_uuid) do
-    case Storage.get_file(file_uuid) do
-      nil -> :ok
-      %File{folder_uuid: ^folder_uuid} = file -> detach_home(file)
-      %File{} -> detach_link(file_uuid, folder_uuid)
+    case ResourceFolders.detach(file_uuid, folder_uuid) do
+      {:ok, _outcome} -> :ok
+      {:error, reason} -> {:error, reason}
     end
-  rescue
-    error ->
-      Logger.warning("[Staff] detach #{file_uuid} failed: #{inspect(error)}")
-      {:error, error}
-  end
-
-  defp detach_home(file) do
-    case list_links(file.uuid) do
-      [] ->
-        case soft_trash(file) do
-          {:ok, _} -> :ok
-          err -> err
-        end
-
-      [%FolderLink{} = link | _] ->
-        repo().transaction(fn ->
-          file |> Ecto.Changeset.change(%{folder_uuid: link.folder_uuid}) |> repo().update!()
-          repo().delete!(link)
-        end)
-        |> case do
-          {:ok, _} -> :ok
-          err -> err
-        end
-    end
-  end
-
-  defp detach_link(file_uuid, folder_uuid) do
-    from(fl in FolderLink, where: fl.file_uuid == ^file_uuid and fl.folder_uuid == ^folder_uuid)
-    |> repo().delete_all()
-
-    :ok
-  end
-
-  defp soft_trash(%File{} = file) do
-    file
-    |> Ecto.Changeset.change(%{
-      status: "trashed",
-      trashed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> repo().update()
-  end
-
-  defp list_links(file_uuid) do
-    from(fl in FolderLink, where: fl.file_uuid == ^file_uuid) |> repo().all()
   end
 
   # ── Lifecycle ──────────────────────────────────────────────────────
 
   @doc """
   Permanently purges a person's media — deletes the root folder and its whole
-  subtree (the nested `Images` folder + every file, including bucket copies)
-  via core's cascading `delete_folder_completely/1`. Every folder named
-  `staff-person-<uuid>` goes, wherever it sits, so it neither consults the
+  subtree (the nested `Images` folder + every file, including bucket copies;
+  a file another folder links survives there) via core's cascading
+  `delete_folder_completely/1`. Every folder named `staff-person-<uuid>`
+  goes, wherever it sits and trashed or not, so it neither consults the
   parent-folder hook nor misses a folder created under an earlier answer.
   Best-effort: logs and returns `:ok` on any failure so it never blocks a
   person deletion. Call only on a **permanent** delete (soft-trash keeps the
   files).
   """
   @spec purge_person_media(binary()) :: :ok
-  def purge_person_media(person_uuid) do
-    name = root_folder_name(person_uuid)
-
-    from(f in Folder, where: f.name == ^name)
-    |> repo().all()
-    |> Enum.each(&Storage.delete_folder_completely/1)
-  rescue
-    error ->
-      Logger.warning("[Staff] purge_person_media #{person_uuid} failed: #{inspect(error)}")
-      :ok
-  end
+  def purge_person_media(person_uuid),
+    do: ResourceFolders.purge_named(root_folder_name(person_uuid))
 
   # ── Template helpers ───────────────────────────────────────────────
 
