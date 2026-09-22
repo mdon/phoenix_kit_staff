@@ -201,6 +201,21 @@ defmodule PhoenixKitStaff.Web.PersonFormLiveTest do
     end
   end
 
+  # `metadata` is server-owned (the avatar pointer, the trash stash); a
+  # crafted form param must neither set nor replace it.
+  test "a crafted metadata param on save is ignored", %{conn: conn} do
+    person = fixture_person(%{"metadata" => %{"source" => "import"}})
+    {:ok, view, _html} = live(conn, "/en/admin/staff/people/#{person.uuid}/edit")
+
+    view
+    |> element("#person-form")
+    |> render_submit(%{
+      "person" => %{"status" => "active", "metadata" => %{"avatar_uuid" => Ecto.UUID.generate()}}
+    })
+
+    assert Staff.get_person!(person.uuid).metadata == %{"source" => "import"}
+  end
+
   describe "internal notes field removed" do
     test "the edit form no longer renders the Internal notes field", %{conn: conn} do
       person = fixture_person()

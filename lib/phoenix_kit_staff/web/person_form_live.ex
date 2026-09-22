@@ -115,9 +115,14 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
   # Folds in-flight secondary-tab translations into attrs and
   # preserves primary-tab column values that the current secondary-tab
   # DOM didn't include. Same shape as Department / Team forms.
+  # `metadata` is server-owned — the avatar pointer, the trash stash — and
+  # the changeset replaces it whole: never from a form.
   defp merge_attrs(attrs, socket) do
     in_flight = Helpers.in_flight_record(socket, :form, :person)
-    Helpers.merge_translations_attrs(attrs, in_flight, Person.translatable_fields())
+
+    attrs
+    |> Map.delete("metadata")
+    |> Helpers.merge_translations_attrs(in_flight, Person.translatable_fields())
   end
 
   @impl true
