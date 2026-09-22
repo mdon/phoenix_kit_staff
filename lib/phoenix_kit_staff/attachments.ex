@@ -50,7 +50,6 @@ defmodule PhoenixKitStaff.Attachments do
   @images_folder_name "Images"
   @avatar_key "avatar_uuid"
   @avatar_pointer {:metadata, @avatar_key}
-  @avatar_pointer {:metadata, "avatar_uuid"}
   # Inline grid is unpaginated; cap the query so a pathological folder can't
   # freeze the tab. The picker uploads ≤20/submit, so this is generous.
   @list_limit 200
@@ -124,6 +123,7 @@ defmodule PhoenixKitStaff.Attachments do
   # Contract: `fun(:person, actor_uuid, subject)` (preferred) or `fun(:person, actor_uuid)`;
   # `subject` is the person uuid. A failing hook or a non-uuid answer falls back
   # to the root, logged (`ResourceFolders.parent_uuid/4`).
+  @spec parent_folder_uuid(atom(), String.t() | nil, term()) :: String.t() | nil
   def parent_folder_uuid(kind, actor_uuid, subject \\ nil),
     do: ResourceFolders.parent_uuid(:phoenix_kit_staff, kind, actor_uuid, subject)
 
@@ -327,24 +327,19 @@ defmodule PhoenixKitStaff.Attachments do
   end
 
   @doc """
-  Whether `file_uuid` is one of the person's own `Images`-folder image files
-  (home or linked, live) — the authorization basis for `set_avatar/2`.
+  Clears the person's avatar — only while it is still `file_uuid`, or the
+  one `person` shows when none is given: an avatar another session has set
+  since is left alone. Answers the person as the row now holds it.
   """
-  @spec avatar_candidate?(binary(), binary()) :: boolean()
-  def avatar_candidate?(person_uuid, file_uuid) do
-    person_uuid
-    |> folder_uuid(:images)
-    |> ResourceFolders.holds_file?(file_uuid, only: :images)
-  rescue
-    _ -> false
-  end
+  @spec clear_avatar(Person.t(), binary() | nil) :: {:ok, Person.t()} | {:error, term()}
+  def clear_avatar(%Person{} = person, file_uuid \\ nil) do
+    case file_uuid || avatar_uuid(person) do
+      nil ->
+        with_fresh_metadata(person)
 
-  @doc "Clears the person's avatar pointer."
-  @spec clear_avatar(Person.t()) :: {:ok, Person.t()} | {:error, term()}
-  def clear_avatar(%Person{} = person) do
-    case ResourceFolders.write_pointer(Person, person.uuid, @avatar_pointer, nil) do
-      :ok -> with_fresh_metadata(person)
-      error -> error
+      shown ->
+        :ok = ResourceFolders.clear_pointer_if(Person, person.uuid, @avatar_pointer, shown)
+        with_fresh_metadata(person)
     end
   end
 

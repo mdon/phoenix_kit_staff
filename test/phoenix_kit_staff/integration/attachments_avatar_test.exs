@@ -81,7 +81,7 @@ defmodule PhoenixKitStaff.Integration.AttachmentsAvatarTest do
     assert updated.metadata == %{"trashed_from_status" => "active", "avatar_uuid" => photo.uuid}
     assert repo().reload(person).metadata == updated.metadata
 
-    {:ok, cleared} = Attachments.clear_avatar(person)
+    {:ok, cleared} = Attachments.clear_avatar(person, photo.uuid)
     assert cleared.metadata == %{"trashed_from_status" => "active"}
   end
 
