@@ -229,7 +229,7 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
       assert dup.reason =~ under_parent.uuid
     end
 
-    test "legacy folder live in two places, neither root nor the resolved parent → one duplicate report, not silently dropped" do
+    test "legacy folder live in two places, neither root nor the resolved parent → each copy reported relocated, none dropped" do
       person = fixture_person(%{"name" => "Scattered"})
       {:ok, target} = Storage.create_folder(%{name: "Staff"})
       {:ok, elsewhere1} = Storage.create_folder(%{name: "Somewhere else 1"})
@@ -252,14 +252,17 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
 
       actions = MediaReorganizer.plan(nil, [])
 
+      # Neither sits where staff looks (the root or the resolved parent), so
+      # each is a copy left alone and reported, as every Source does.
       refute Enum.any?(actions, &(&1.kind == :person and &1.label == "Scattered"))
-      refute Enum.any?(actions, &(&1.kind == :relocated and &1.label == "Scattered"))
+      refute Enum.any?(actions, &(&1.kind == :duplicate and &1.label == "Scattered"))
 
-      dup = Enum.find(actions, &(&1.kind == :duplicate and &1.label == "Scattered"))
-      refute is_nil(dup)
-      assert dup.op == :report
-      assert dup.reason =~ folder1.uuid
-      assert dup.reason =~ folder2.uuid
+      relocated = Enum.filter(actions, &(&1.kind == :relocated and &1.label == "Scattered"))
+
+      assert relocated |> Enum.map(& &1.folder.uuid) |> Enum.sort() ==
+               Enum.sort([folder1.uuid, folder2.uuid])
+
+      assert Enum.all?(relocated, &(&1.op == :report))
     end
 
     test "legacy folder live at root, under the resolved parent, AND a third place → duplicate names the pair, third copy still reported relocated (U9)" do
@@ -339,8 +342,10 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
           assert error.reason =~ "1 record"
         end)
 
-      # T4: a raising hook is logged, not silently swallowed.
-      assert log =~ "boom"
+      # T4: a raising hook is logged, not silently swallowed — by the
+      # exception's name; its message can carry the hook's arguments.
+      assert log =~ "RuntimeError"
+      refute log =~ "boom"
     end
 
     test "hook returns {:error, _} → same as raising, never treated as root" do
@@ -425,7 +430,7 @@ defmodule PhoenixKitStaff.MediaReorganizerTest do
       log = capture_log(fn -> MediaReorganizer.plan(nil, []) end)
 
       assert log =~ inspect(ErrorHook)
-      assert log =~ "{:error, :timeout}"
+      assert log =~ ":timeout"
     end
 
     test "an invalid (non-{mod, fun}) hook config is a hook_error, never silently no-hook (U7/V3)" do
