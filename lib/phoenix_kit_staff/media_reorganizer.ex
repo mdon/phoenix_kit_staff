@@ -24,6 +24,9 @@ defmodule PhoenixKitStaff.MediaReorganizer do
     %{
       source: "staff",
       app: :phoenix_kit_staff,
+      # Folders are always `staff-person-<uuid>`: uploads never ask the
+      # folder-name hook, so no plan may propose a host name.
+      name_hook: false,
       kinds: [
         %{kind: :person, schema: Person, prefix: "staff-person-", subject: :uuid, live: &live/1}
       ]
