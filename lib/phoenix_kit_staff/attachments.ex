@@ -47,6 +47,7 @@ defmodule PhoenixKitStaff.Attachments do
 
   @images_folder_name "Images"
   @avatar_key "avatar_uuid"
+  @avatar_pointer {:metadata, "avatar_uuid"}
   # Inline grid is unpaginated; cap the query so a pathological folder can't
   # freeze the tab. The picker uploads ≤20/submit, so this is generous.
   @list_limit 200
@@ -281,32 +282,13 @@ defmodule PhoenixKitStaff.Attachments do
 
   @doc "The person's avatar file uuid (from metadata), or nil."
   @spec avatar_uuid(Person.t()) :: binary() | nil
-  def avatar_uuid(%Person{metadata: m}) when is_map(m) do
-    case Map.get(m, @avatar_key) do
-      uuid when is_binary(uuid) and uuid != "" -> uuid
-      _ -> nil
-    end
-  end
-
+  def avatar_uuid(%Person{} = person), do: ResourceFolders.pointer_value(person, @avatar_pointer)
   def avatar_uuid(_), do: nil
 
   @doc "The person's avatar `File` struct, or nil if unset / missing / trashed."
   @spec avatar_file(Person.t()) :: File.t() | nil
-  def avatar_file(person) do
-    case avatar_uuid(person) do
-      nil ->
-        nil
-
-      uuid ->
-        case Storage.get_file(uuid) do
-          %File{status: "trashed"} -> nil
-          %File{} = file -> file
-          _ -> nil
-        end
-    end
-  rescue
-    _ -> nil
-  end
+  def avatar_file(%Person{} = person), do: ResourceFolders.pointed_file(person, @avatar_pointer)
+  def avatar_file(_), do: nil
 
   @doc "Thumbnail URL for the person's avatar (or nil)."
   @spec avatar_url(Person.t()) :: String.t() | nil
@@ -314,14 +296,34 @@ defmodule PhoenixKitStaff.Attachments do
 
   @doc """
   Points the person's avatar at `file_uuid` (server-owned metadata write).
-  Refuses a trashed person (`{:error, :person_trashed}`) — a removed person
-  shouldn't gain a new profile photo; clearing the avatar stays unguarded.
+
+  Authorizes the pointer: `file_uuid` must be a live image in (or linked
+  into) the person's own `Images` folder — a forged event cannot point the
+  avatar at an arbitrary file elsewhere in storage
+  (`{:error, :not_person_image}`). Refuses a trashed person
+  (`{:error, :person_trashed}`) — a removed person shouldn't gain a new
+  profile photo; clearing the avatar stays unguarded.
   """
   @spec set_avatar(Person.t(), binary()) :: {:ok, Person.t()} | {:error, term()}
   def set_avatar(%Person{} = person, file_uuid) when is_binary(file_uuid) and file_uuid != "" do
-    if Person.trashed?(person),
-      do: {:error, :person_trashed},
-      else: put_metadata(person, @avatar_key, file_uuid)
+    cond do
+      Person.trashed?(person) -> {:error, :person_trashed}
+      avatar_candidate?(person.uuid, file_uuid) -> put_metadata(person, @avatar_key, file_uuid)
+      true -> {:error, :not_person_image}
+    end
+  end
+
+  @doc """
+  Whether `file_uuid` is one of the person's own `Images`-folder image files
+  (home or linked, live) — the authorization basis for `set_avatar/2`.
+  """
+  @spec avatar_candidate?(binary(), binary()) :: boolean()
+  def avatar_candidate?(person_uuid, file_uuid) do
+    person_uuid
+    |> folder_uuid(:images)
+    |> ResourceFolders.holds_file?(file_uuid, only: :images)
+  rescue
+    _ -> false
   end
 
   @doc "Clears the person's avatar pointer."
