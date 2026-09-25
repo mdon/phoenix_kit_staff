@@ -309,20 +309,45 @@ defmodule PhoenixKitStaff.Attachments do
   (`{:error, :person_trashed}`) — a removed person shouldn't gain a new
   profile photo; clearing the avatar stays unguarded.
   """
-  @spec set_avatar(Person.t(), binary()) :: {:ok, Person.t()} | {:error, term()}
-  def set_avatar(%Person{} = person, file_uuid) when is_binary(file_uuid) and file_uuid != "" do
+  @spec set_avatar(Person.t(), binary(), binary() | nil) ::
+          {:ok, Person.t()} | {:error, term()}
+  def set_avatar(person, file_uuid, actor_uuid \\ nil)
+
+  def set_avatar(%Person{} = person, file_uuid, actor_uuid)
+      when is_binary(file_uuid) and file_uuid != "" do
     if Person.trashed?(person) do
       {:error, :person_trashed}
     else
-      images = folder_uuid(person.uuid, :images)
+      # The same actor the picker resolved the folder with: a host hook that
+      # answers per actor would otherwise place and check in different roots.
+      images = folder_uuid(person.uuid, :images, actor_uuid)
 
       case ResourceFolders.point_at(Person, person.uuid, @avatar_pointer, file_uuid, images,
              only: :images
            ) do
-        :ok -> with_fresh_metadata(person)
+        :ok -> confirm_not_trashed(person, file_uuid)
         {:error, :not_held} -> {:error, :not_person_image}
         {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  # `point_at/6` checked the file, not the person: a session that loaded the
+  # person before another trashed them still reads active above. Re-read the
+  # row; if it is trashed now, take the pointer back — only while it is still
+  # this file — and refuse.
+  defp confirm_not_trashed(%Person{uuid: uuid} = person, file_uuid) do
+    case repo().one(from(p in Person, where: p.uuid == ^uuid, select: {p.status, p.metadata})) do
+      nil ->
+        {:error, :not_found}
+
+      {status, metadata} ->
+        if Person.trashed?(%Person{status: status}) do
+          :ok = ResourceFolders.clear_pointer_if(Person, uuid, @avatar_pointer, file_uuid)
+          {:error, :person_trashed}
+        else
+          {:ok, %{person | status: status, metadata: metadata}}
+        end
     end
   end
 

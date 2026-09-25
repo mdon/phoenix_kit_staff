@@ -26,6 +26,23 @@ defmodule PhoenixKitStaff.Integration.SoftDeleteTest do
       {:ok, trashed} = Staff.trash_person(person)
       assert {:error, :already_trashed} = Staff.trash_person(trashed)
     end
+
+    test "keeps a key another session wrote after the person was loaded" do
+      person = fixture_person()
+      # Another session sets the avatar behind this struct's back.
+      Repo.update!(Ecto.Changeset.change(person, metadata: %{"avatar_uuid" => "abc"}))
+
+      assert {:ok, trashed} = Staff.trash_person(person)
+      assert trashed.metadata == %{"avatar_uuid" => "abc", "trashed_from_status" => "active"}
+      assert Repo.reload(person).metadata == trashed.metadata
+    end
+
+    test "the second of two sessions trashing the same person is told so" do
+      person = fixture_person()
+      assert {:ok, _} = Staff.trash_person(person)
+      # This copy still reads active — the guard is in the UPDATE.
+      assert {:error, :already_trashed} = Staff.trash_person(person)
+    end
   end
 
   describe "restore_person/1" do
@@ -36,6 +53,19 @@ defmodule PhoenixKitStaff.Integration.SoftDeleteTest do
       assert {:ok, restored} = Staff.restore_person(trashed)
       assert restored.status == "inactive"
       refute Map.has_key?(restored.metadata, "trashed_from_status")
+    end
+
+    test "keeps a key another session wrote while the person sat in the trash" do
+      person = fixture_person()
+      {:ok, trashed} = Staff.trash_person(person)
+
+      Repo.update!(
+        Ecto.Changeset.change(trashed, metadata: Map.put(trashed.metadata, "avatar_uuid", "abc"))
+      )
+
+      assert {:ok, restored} = Staff.restore_person(trashed)
+      assert restored.status == "active"
+      assert restored.metadata == %{"avatar_uuid" => "abc"}
     end
 
     test "defaults to active when the stash is missing or garbage" do

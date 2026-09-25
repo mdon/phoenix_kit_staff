@@ -65,7 +65,11 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
   end
 
   defp set_avatar(socket, file_uuid) do
-    case Attachments.set_avatar(socket.assigns.person, file_uuid) do
+    case Attachments.set_avatar(
+           socket.assigns.person,
+           file_uuid,
+           PhoenixKitWeb.Actor.uuid(socket)
+         ) do
       {:ok, _} ->
         log_avatar(socket, "set")
         socket |> reload_person() |> put_flash(:info, gettext("Profile photo updated."))

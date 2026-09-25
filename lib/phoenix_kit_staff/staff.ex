@@ -324,19 +324,39 @@ defmodule PhoenixKitStaff.Staff do
   back cleanly on restore. This is the whole point over hard delete,
   which would silently NULL out project assignments (FK is SET NULL).
   """
-  @spec trash_person(Person.t()) ::
-          {:ok, Person.t()} | {:error, :already_trashed | Ecto.Changeset.t(Person.t())}
+  @spec trash_person(Person.t()) :: {:ok, Person.t()} | {:error, :already_trashed}
   def trash_person(%Person{status: @soft_delete_status}), do: {:error, :already_trashed}
 
-  def trash_person(%Person{} = p) do
-    metadata = Map.put(p.metadata || %{}, "trashed_from_status", p.status)
+  def trash_person(%Person{uuid: uuid} = p) do
+    # One UPDATE whose SET reads the row as it is now, never this copy of it:
+    # a whole-map write would erase a key another session wrote since (the
+    # avatar pointer, for one). The status guard sits in the WHERE, so two
+    # sessions trashing at once get one {:ok, _} and one :already_trashed.
+    query =
+      from(x in Person,
+        where: x.uuid == ^uuid and x.status != ^@soft_delete_status,
+        update: [
+          set: [
+            status: ^@soft_delete_status,
+            metadata:
+              fragment(
+                "jsonb_set(coalesce(?, '{}'::jsonb), '{trashed_from_status}', to_jsonb(?::text))",
+                x.metadata,
+                x.status
+              )
+          ]
+        ],
+        select: {x.status, x.metadata}
+      )
 
-    with {:ok, updated} <-
-           p
-           |> Ecto.Changeset.change(status: @soft_delete_status, metadata: metadata)
-           |> repo().update() do
-      StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
-      {:ok, updated}
+    case repo().update_all(query, []) do
+      {1, [{status, metadata}]} ->
+        updated = %{p | status: status, metadata: metadata}
+        StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
+        {:ok, updated}
+
+      {0, _} ->
+        {:error, :already_trashed}
     end
   end
 
@@ -347,29 +367,40 @@ defmodule PhoenixKitStaff.Staff do
   but preserves any other metadata. Broadcasts `:person_updated`.
   Returns `{:error, :not_trashed}` if the person isn't trashed.
   """
-  @spec restore_person(Person.t()) ::
-          {:ok, Person.t()} | {:error, :not_trashed | Ecto.Changeset.t(Person.t())}
-  def restore_person(%Person{status: @soft_delete_status} = p) do
-    prior = restore_target_status(p.metadata)
-    metadata = Map.delete(p.metadata || %{}, "trashed_from_status")
+  @spec restore_person(Person.t()) :: {:ok, Person.t()} | {:error, :not_trashed}
+  def restore_person(%Person{status: @soft_delete_status, uuid: uuid} = p) do
+    # Same shape as trash_person/1: the stash is read and cleared in the row,
+    # so a key written while the person sat in the trash survives.
+    query =
+      from(x in Person,
+        where: x.uuid == ^uuid and x.status == ^@soft_delete_status,
+        update: [
+          set: [
+            status:
+              fragment(
+                "CASE WHEN ? ->> 'trashed_from_status' = ANY(?) THEN ? ->> 'trashed_from_status' ELSE 'active' END",
+                x.metadata,
+                type(^Person.statuses(), {:array, :string}),
+                x.metadata
+              ),
+            metadata: fragment("coalesce(?, '{}'::jsonb) - 'trashed_from_status'", x.metadata)
+          ]
+        ],
+        select: {x.status, x.metadata}
+      )
 
-    with {:ok, updated} <-
-           p
-           |> Ecto.Changeset.change(status: prior, metadata: metadata)
-           |> repo().update() do
-      StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
-      {:ok, updated}
+    case repo().update_all(query, []) do
+      {1, [{status, metadata}]} ->
+        updated = %{p | status: status, metadata: metadata}
+        StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
+        {:ok, updated}
+
+      {0, _} ->
+        {:error, :not_trashed}
     end
   end
 
   def restore_person(%Person{}), do: {:error, :not_trashed}
-
-  defp restore_target_status(metadata) do
-    case metadata do
-      %{"trashed_from_status" => s} -> if s in Person.statuses(), do: s, else: "active"
-      _ -> "active"
-    end
-  end
 
   @doc """
   Permanently deletes a person (hard `Repo.delete`) and broadcasts

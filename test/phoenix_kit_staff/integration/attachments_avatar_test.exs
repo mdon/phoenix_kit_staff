@@ -8,6 +8,7 @@ defmodule PhoenixKitStaff.Integration.AttachmentsAvatarTest do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
   alias PhoenixKitStaff.Attachments
+  alias PhoenixKitStaff.Staff
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -83,6 +84,39 @@ defmodule PhoenixKitStaff.Integration.AttachmentsAvatarTest do
 
     {:ok, cleared} = Attachments.clear_avatar(person, photo.uuid)
     assert cleared.metadata == %{"trashed_from_status" => "active"}
+  end
+
+  test "refuses when the person was trashed after they were loaded, and leaves no avatar" do
+    person = fixture_person()
+    photo = own_image!(person)
+    # Another session trashes them; `person` still reads active.
+    {:ok, _} = Staff.trash_person(Repo.reload(person))
+
+    assert {:error, :person_trashed} = Attachments.set_avatar(person, photo.uuid)
+    assert Attachments.avatar_uuid(Repo.reload(person)) == nil
+  end
+
+  test "a metadata map from params can neither set nor clear the avatar pointer" do
+    person = fixture_person()
+    photo = own_image!(person)
+    {:ok, _} = Attachments.set_avatar(person, photo.uuid)
+    other = own_image!(person)
+
+    # Spoof it in both key spellings alongside a legitimate host key.
+    assert {:ok, updated} =
+             Staff.update_person(Repo.reload(person), %{
+               "metadata" => %{
+                 "avatar_uuid" => other.uuid,
+                 :avatar_uuid => other.uuid,
+                 "hr" => "x"
+               }
+             })
+
+    assert updated.metadata == %{"avatar_uuid" => photo.uuid, "hr" => "x"}
+
+    # Leaving the key out does not clear it either.
+    assert {:ok, updated} = Staff.update_person(updated, %{"metadata" => %{"hr" => "y"}})
+    assert Repo.reload(updated).metadata == %{"avatar_uuid" => photo.uuid, "hr" => "y"}
   end
 
   test "only one of the person's own images can become the avatar" do
