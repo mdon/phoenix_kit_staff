@@ -16,7 +16,9 @@ defmodule PhoenixKitStaff.Web.DepartmentsLive do
     if connected?(socket), do: StaffPubSub.subscribe(StaffPubSub.topic_departments())
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(Helpers.section_assigns())
+     |> assign(
        page_title: gettext("Departments"),
        page_subtitle: gettext("Top-level organizational units."),
        page_action: %{

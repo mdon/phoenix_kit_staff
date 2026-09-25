@@ -16,7 +16,9 @@ defmodule PhoenixKitStaff.Web.TeamsLive do
     if connected?(socket), do: StaffPubSub.subscribe(StaffPubSub.topic_teams())
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(Helpers.section_assigns())
+     |> assign(
        page_title: gettext("Teams"),
        page_subtitle: gettext("Teams across all departments."),
        page_action: %{

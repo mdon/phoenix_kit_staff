@@ -10,7 +10,7 @@ defmodule PhoenixKitStaff.Test.Layouts do
   rendered HTML, and tests fall back to "process alive" tautologies.
 
   It also renders the `page_title` / `page_subtitle` / `page_section` /
-  `page_action` assigns that core's admin layout shows in its breadcrumb
+  `page_crumbs` / `page_action` assigns that core's admin layout shows in its breadcrumb
   bar, because the Staff LiveViews no longer render their own headers.
   """
 
@@ -61,6 +61,9 @@ defmodule PhoenixKitStaff.Test.Layouts do
     <a :if={assigns[:page_section]} id="test-page-section" href={assigns[:page_section_path]}>
       {@page_section}
     </a>
+    <nav :if={assigns[:page_crumbs]} id="test-page-crumbs">
+      <a :for={crumb <- @page_crumbs} href={crumb[:path] || crumb[:patch]}>{crumb.label}</a>
+    </nav>
     <a :if={assigns[:page_action]} id="test-page-action" href={@page_action[:navigate]}>
       {@page_action[:label]}
     </a>

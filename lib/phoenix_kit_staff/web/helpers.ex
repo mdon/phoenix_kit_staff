@@ -30,7 +30,19 @@ defmodule PhoenixKitStaff.Web.Helpers do
   `assign_form/2` cycle, no audit row needed for keystrokes).
   """
 
-  alias PhoenixKitStaff.Activity
+  use Gettext, backend: PhoenixKitStaff.Gettext
+
+  alias PhoenixKitStaff.{Activity, Paths}
+
+  @doc """
+  The header-trail assigns every page under the Overview shares: the module
+  as `page_section`, linking to its landing page. The Overview itself sets
+  none — there the module is the title. A page adds its own levels through
+  `page_crumbs` (the list it belongs to, then the record) and names only
+  itself in `page_title`; core's admin header draws the rest.
+  """
+  @spec section_assigns() :: keyword()
+  def section_assigns, do: [page_section: gettext("Staff"), page_section_path: Paths.index()]
 
   @doc """
   Writes a failure-side activity row for a destructive/mutating operation.

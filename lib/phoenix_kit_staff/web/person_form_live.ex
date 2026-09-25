@@ -35,7 +35,9 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
     all_skills = skill_options()
 
     socket
+    |> assign(Helpers.section_assigns())
     |> assign(
+      page_crumbs: [%{label: gettext("Staff"), path: Paths.people()}],
       page_title: gettext("New staff"),
       page_subtitle: gettext("Add a new person on staff."),
       person: person,
@@ -75,8 +77,13 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
         staged = load_staged_skills(person.uuid)
 
         socket
+        |> assign(Helpers.section_assigns())
         |> assign(
-          page_title: gettext("Edit staff"),
+          page_crumbs: [
+            %{label: gettext("Staff"), path: Paths.people()},
+            %{label: Person.display_name(person), path: Paths.person(person.uuid)}
+          ],
+          page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
           page_subtitle: gettext("Update staff profile."),
           person: person,
           live_action: :edit,

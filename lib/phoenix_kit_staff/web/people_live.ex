@@ -31,8 +31,10 @@ defmodule PhoenixKitStaff.Web.PeopleLive do
     # mount/3 runs — re-assigning them here would overwrite a shared link's
     # state with the defaults.
     {:ok,
-     assign(socket,
-       page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Staff"),
+     socket
+     |> assign(Helpers.section_assigns())
+     |> assign(
+       page_title: gettext("Staff"),
        page_subtitle: gettext("Everyone on staff, linked to their PhoenixKit user."),
        page_action: %{
          icon: "hero-plus",

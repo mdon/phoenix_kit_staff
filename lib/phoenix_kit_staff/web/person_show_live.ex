@@ -37,7 +37,9 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
         # it's always loadable — only the runtime feature flag gates the tab.
         {:ok,
          socket
+         |> assign(Helpers.section_assigns())
          |> assign(
+           page_crumbs: [%{label: gettext("Staff"), path: Paths.people()}],
            page_title: Person.display_name(person),
            person: person,
            memberships: Staff.list_memberships_for_person(person.uuid),
@@ -147,6 +149,7 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
         {:noreply,
          socket
          |> assign(
+           page_title: Person.display_name(person),
            person: person,
            memberships: Staff.list_memberships_for_person(person.uuid)
          )

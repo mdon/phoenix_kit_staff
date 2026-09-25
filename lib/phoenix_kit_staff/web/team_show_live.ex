@@ -40,17 +40,17 @@ defmodule PhoenixKitStaff.Web.TeamShowLive do
   defp team_header_assigns(team) do
     lang = L10n.current_content_lang()
 
-    [
-      page_title: Team.localized_name(team, lang),
-      page_subtitle: Team.localized_description(team, lang),
-      page_section: Department.localized_name(team.department, lang),
-      page_section_path: Paths.department(team.department.uuid),
-      page_action: %{
-        icon: "hero-pencil",
-        label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
-        navigate: Paths.edit_team(team.uuid)
-      }
-    ]
+    Helpers.section_assigns() ++
+      [
+        page_crumbs: [%{label: gettext("Teams"), path: Paths.teams()}],
+        page_title: Team.localized_name(team, lang),
+        page_subtitle: Team.localized_description(team, lang),
+        page_action: %{
+          icon: "hero-pencil",
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
+          navigate: Paths.edit_team(team.uuid)
+        }
+      ]
   end
 
   @impl true
@@ -157,8 +157,19 @@ defmodule PhoenixKitStaff.Web.TeamShowLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :lang, L10n.current_content_lang())
+
     ~H"""
     <div class="flex flex-col w-full px-4 py-6 gap-4">
+      <%!-- The department is not a level of this page's URL, so it is not a
+           crumb (the trail is Staff / Teams / <team>); it is shown here. --%>
+      <p class="text-sm text-base-content/70">
+        {gettext("Department")}:
+        <.link navigate={Paths.department(@team.department.uuid)} class="link link-primary">
+          {Department.localized_name(@team.department, @lang)}
+        </.link>
+      </p>
+
       <div class="card bg-base-100 shadow">
         <div class="card-body">
           <h2 class="card-title text-lg">{gettext("Add staff")}</h2>

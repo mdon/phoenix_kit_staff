@@ -6,7 +6,7 @@ defmodule PhoenixKitStaff.Web.DepartmentFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
-  alias PhoenixKitStaff.{Activity, Departments, Paths}
+  alias PhoenixKitStaff.{Activity, Departments, L10n, Paths}
   alias PhoenixKitStaff.Schemas.Department
   alias PhoenixKitStaff.Web.Helpers
 
@@ -24,7 +24,9 @@ defmodule PhoenixKitStaff.Web.DepartmentFormLive do
     dept = %Department{}
 
     socket
+    |> assign(Helpers.section_assigns())
     |> assign(
+      page_crumbs: [%{label: gettext("Departments"), path: Paths.departments()}],
       page_title: gettext("New department"),
       page_subtitle: gettext("Create a new department."),
       dept: dept,
@@ -41,9 +43,16 @@ defmodule PhoenixKitStaff.Web.DepartmentFormLive do
         |> push_navigate(to: Paths.departments())
 
       dept ->
+        lang = L10n.current_content_lang()
+
         socket
+        |> assign(Helpers.section_assigns())
         |> assign(
-          page_title: gettext("Edit %{name}", name: dept.name),
+          page_crumbs: [
+            %{label: gettext("Departments"), path: Paths.departments()},
+            %{label: Department.localized_name(dept, lang), path: Paths.department(dept.uuid)}
+          ],
+          page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
           page_subtitle: gettext("Update department details."),
           dept: dept,
           live_action: :edit

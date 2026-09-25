@@ -16,7 +16,9 @@ defmodule PhoenixKitStaff.Web.SkillsLive do
     if connected?(socket), do: StaffPubSub.subscribe(StaffPubSub.topic_skills())
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(Helpers.section_assigns())
+     |> assign(
        page_title: gettext("Skills"),
        page_subtitle: gettext("Skills you can assign to staff."),
        page_action: %{
