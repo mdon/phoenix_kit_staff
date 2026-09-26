@@ -24,7 +24,9 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
   def mount(params, _session, socket) do
     {:ok,
      socket
-     |> mount_multilang()
+     |> mount_multilang(
+       open_on: if(socket.assigns.live_action == :edit, do: :viewing_language, else: :primary)
+     )
      |> apply_action(socket.assigns.live_action, params)}
   end
 
@@ -33,7 +35,9 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
     all_skills = skill_options()
 
     socket
+    |> assign(Helpers.section_assigns())
     |> assign(
+      page_crumbs: [%{label: gettext("Staff"), path: Paths.people()}],
       page_title: gettext("New staff"),
       page_subtitle: gettext("Add a new person on staff."),
       person: person,
@@ -73,8 +77,13 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
         staged = load_staged_skills(person.uuid)
 
         socket
+        |> assign(Helpers.section_assigns())
         |> assign(
-          page_title: gettext("Edit staff"),
+          page_crumbs: [
+            %{label: gettext("Staff"), path: Paths.people()},
+            %{label: Person.display_name(person), path: Paths.person(person.uuid)}
+          ],
+          page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
           page_subtitle: gettext("Update staff profile."),
           person: person,
           live_action: :edit,
@@ -113,9 +122,14 @@ defmodule PhoenixKitStaff.Web.PersonFormLive do
   # Folds in-flight secondary-tab translations into attrs and
   # preserves primary-tab column values that the current secondary-tab
   # DOM didn't include. Same shape as Department / Team forms.
+  # `metadata` is server-owned — the avatar pointer, the trash stash — and
+  # the changeset replaces it whole: never from a form.
   defp merge_attrs(attrs, socket) do
     in_flight = Helpers.in_flight_record(socket, :form, :person)
-    Helpers.merge_translations_attrs(attrs, in_flight, Person.translatable_fields())
+
+    attrs
+    |> Map.delete("metadata")
+    |> Helpers.merge_translations_attrs(in_flight, Person.translatable_fields())
   end
 
   @impl true

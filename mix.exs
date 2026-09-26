@@ -84,13 +84,15 @@ defmodule PhoenixKitStaff.MixProject do
 
   defp deps do
     [
-      # `~> 2.0` — core 2.0 squashed the migration chain into the V135 baseline
-      # that ships the staff tables, and every compile-time dependency here
-      # (`PhoenixKitWeb.Live.UrlState`, `MultilangForm`, `nav_tabs`) predates it.
-      # Keep the pin two-segment: a three-segment `~> 2.x.y` excludes the next
-      # core minor and breaks hosts' `mix deps.get` (see
-      # test/core_pin_conformance_test.exs).
-      pk_dep(:phoenix_kit, "~> 2.0"),
+      # The floor is 2.38.0: the module runs on core's shared toolkits —
+      # `PhoenixKitWeb.Actor`, `PhoenixKit.Activity.log/3`,
+      # `Storage.ResourceFolders`, the reorganizer's `ResourceSource`,
+      # `Utils.Format` and `mount_multilang(open_on:)` — all first shipped
+      # there, and none is feature-detected, so a lower core fails to compile.
+      # Patch-precise floor in the compound form, so the ceiling stays open
+      # through every later 2.x minor (a three-segment `~> 2.38.0` would pin
+      # one minor; see test/core_pin_conformance_test.exs).
+      pk_dep(:phoenix_kit, ">= 2.38.0 and < 3.0.0"),
       # Hard dep: PersonShowLive embeds the comment thread (Comments tab) and
       # `use PhoenixKitComments.Embed` for the composer's Leaf-event forwarding,
       # both compile-time. `Embed` arrived *mid*-0.2.x — in 0.2.6 — so `~> 0.2`

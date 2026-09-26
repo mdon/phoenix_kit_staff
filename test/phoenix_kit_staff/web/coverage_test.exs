@@ -282,7 +282,8 @@ defmodule PhoenixKitStaff.Web.CoverageTest do
 
       {:ok, _view, html} = live(conn, "/en/admin/staff/people/#{person.uuid}/edit")
 
-      assert html =~ "Edit staff"
+      assert html =~ "Edit"
+      assert html =~ ~s|href="/en/admin/staff/people/#{person.uuid}"|
     end
 
     test "edit save with successful update logs activity", %{

@@ -30,7 +30,19 @@ defmodule PhoenixKitStaff.Web.Helpers do
   `assign_form/2` cycle, no audit row needed for keystrokes).
   """
 
-  alias PhoenixKitStaff.Activity
+  use Gettext, backend: PhoenixKitStaff.Gettext
+
+  alias PhoenixKitStaff.{Activity, Paths}
+
+  @doc """
+  The header-trail assigns every page under the Overview shares: the module
+  as `page_section`, linking to its landing page. The Overview itself sets
+  none — there the module is the title. A page adds its own levels through
+  `page_crumbs` (the list it belongs to, then the record) and names only
+  itself in `page_title`; core's admin header draws the rest.
+  """
+  @spec section_assigns() :: keyword()
+  def section_assigns, do: [page_section: gettext("Staff"), page_section_path: Paths.index()]
 
   @doc """
   Writes a failure-side activity row for a destructive/mutating operation.
@@ -52,12 +64,11 @@ defmodule PhoenixKitStaff.Web.Helpers do
       `error_atom` keys — caller-supplied collisions on those keys are
       ignored so the audit-feed contract stays stable.
 
-  Returns the underlying `Activity.log/2` return value (`:ok`,
-  `{:ok, _entry}`, `{:error, _}`, `:activity_unavailable`); never
-  raises.
+  Returns the underlying `Activity.log/2` return value (`{:ok, _entry}`
+  or `{:error, _}`); never raises.
   """
   @spec log_operation_error(String.t(), Phoenix.LiveView.Socket.t(), keyword()) ::
-          :ok | :activity_unavailable | {:ok, struct()} | {:error, any()}
+          {:ok, struct()} | {:error, any()}
   def log_operation_error(action, socket, opts) when is_binary(action) and is_list(opts) do
     reason = Keyword.fetch!(opts, :reason)
     resource_type = Keyword.fetch!(opts, :resource_type)

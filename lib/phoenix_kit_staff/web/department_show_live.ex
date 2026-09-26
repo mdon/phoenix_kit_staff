@@ -9,6 +9,7 @@ defmodule PhoenixKitStaff.Web.DepartmentShowLive do
   alias PhoenixKitStaff.{Departments, L10n, Paths, Teams}
   alias PhoenixKitStaff.PubSub, as: StaffPubSub
   alias PhoenixKitStaff.Schemas.{Department, Team}
+  alias PhoenixKitStaff.Web.Helpers
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -25,21 +26,30 @@ defmodule PhoenixKitStaff.Web.DepartmentShowLive do
          |> push_navigate(to: Paths.departments())}
 
       dept ->
-        lang = L10n.current_content_lang()
-
         {:ok,
-         assign(socket,
-           page_title: Department.localized_name(dept, lang),
-           page_subtitle: Department.localized_description(dept, lang),
-           page_action: %{
-             icon: "hero-pencil",
-             label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
-             navigate: Paths.edit_department(dept.uuid)
-           },
-           dept: dept,
-           teams: Teams.list(department_uuid: dept.uuid)
-         )}
+         socket
+         |> assign(dept_header_assigns(dept))
+         |> assign(dept: dept, teams: Teams.list(department_uuid: dept.uuid))}
     end
+  end
+
+  # Name and description are translatable, so the header assigns are derived
+  # together and refreshed on every broadcast alongside `dept` itself —
+  # otherwise a rename via PubSub would leave the breadcrumb title stale.
+  defp dept_header_assigns(dept) do
+    lang = L10n.current_content_lang()
+
+    Helpers.section_assigns() ++
+      [
+        page_crumbs: [%{label: gettext("Departments"), path: Paths.departments()}],
+        page_title: Department.localized_name(dept, lang),
+        page_subtitle: Department.localized_description(dept, lang),
+        page_action: %{
+          icon: "hero-pencil",
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
+          navigate: Paths.edit_department(dept.uuid)
+        }
+      ]
   end
 
   @impl true
@@ -56,15 +66,10 @@ defmodule PhoenixKitStaff.Web.DepartmentShowLive do
         {:noreply, push_navigate(socket, to: Paths.departments())}
 
       dept ->
-        lang = L10n.current_content_lang()
-
         {:noreply,
-         assign(socket,
-           page_title: Department.localized_name(dept, lang),
-           page_subtitle: Department.localized_description(dept, lang),
-           dept: dept,
-           teams: Teams.list(department_uuid: dept.uuid)
-         )}
+         socket
+         |> assign(dept_header_assigns(dept))
+         |> assign(dept: dept, teams: Teams.list(department_uuid: dept.uuid))}
     end
   end
 

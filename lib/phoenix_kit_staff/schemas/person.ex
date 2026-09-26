@@ -11,6 +11,7 @@ defmodule PhoenixKitStaff.Schemas.Person do
   use PhoenixKit.SchemaPrefix
   use Gettext, backend: PhoenixKitWeb.Gettext
   import Ecto.Changeset
+  import Ecto.Query, only: [from: 2]
 
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitStaff.L10n
@@ -130,6 +131,7 @@ defmodule PhoenixKitStaff.Schemas.Person do
   def changeset(person, attrs) do
     person
     |> cast(attrs, @required ++ @optional)
+    |> keep_server_owned_metadata()
     |> validate_required(@required)
     # Only user-selectable statuses pass the public changeset. The
     # "trashed" sentinel is set exclusively by `Staff.trash_person/1`
@@ -225,4 +227,44 @@ defmodule PhoenixKitStaff.Schemas.Person do
   def employment_type_label("temporary"), do: gettext("Temporary")
   def employment_type_label(nil), do: nil
   def employment_type_label(other), do: other
+
+  # `metadata` is castable so a host can keep its own keys there, but two of
+  # them are server-owned: `avatar_uuid`, written only by
+  # `Attachments.set_avatar/3` after it has checked the file is the person's
+  # own image, and `trashed_from_status`, written only by `Staff.trash_person/1`.
+  # A metadata map from params — or from a stale struct — can neither set nor
+  # clear them: they are re-read from the row, under its lock, inside the
+  # write's own transaction. Atom keys would land under the same JSON names,
+  # so both spellings are dropped.
+  @server_owned_metadata ~w(avatar_uuid trashed_from_status)
+
+  defp keep_server_owned_metadata(changeset) do
+    case fetch_change(changeset, :metadata) do
+      {:ok, new} when is_map(new) ->
+        prepare_changes(changeset, fn cs ->
+          put_change(cs, :metadata, Map.merge(without_owned(new), owned_now(cs)))
+        end)
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp without_owned(map) do
+    Map.reject(map, fn {k, _} ->
+      (is_atom(k) or is_binary(k)) and to_string(k) in @server_owned_metadata
+    end)
+  end
+
+  defp owned_now(%Ecto.Changeset{data: %__MODULE__{uuid: uuid}, repo: repo})
+       when is_binary(uuid) do
+    query = from(p in __MODULE__, where: p.uuid == ^uuid, select: p.metadata, lock: "FOR UPDATE")
+
+    case repo.one(query) do
+      %{} = metadata -> Map.take(metadata, @server_owned_metadata)
+      _ -> %{}
+    end
+  end
+
+  defp owned_now(_new_record), do: %{}
 end

@@ -20,7 +20,7 @@ defmodule PhoenixKitStaff.Web.OverviewLive do
 
     {:ok,
      assign(socket,
-       page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Staff"),
+       page_title: gettext("Staff"),
        page_subtitle: gettext("Departments, teams, and the people in them.")
      )
      |> reload()}

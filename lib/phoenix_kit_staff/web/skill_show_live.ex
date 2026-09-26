@@ -18,6 +18,7 @@ defmodule PhoenixKitStaff.Web.SkillShowLive do
   alias PhoenixKitStaff.{Activity, L10n, Paths, Skills}
   alias PhoenixKitStaff.PubSub, as: StaffPubSub
   alias PhoenixKitStaff.Schemas.{Person, PersonSkill, Skill}
+  alias PhoenixKitStaff.Web.Helpers
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -46,15 +47,17 @@ defmodule PhoenixKitStaff.Web.SkillShowLive do
   defp skill_header_assigns(skill) do
     lang = L10n.current_content_lang()
 
-    [
-      page_title: Skill.localized_name(skill, lang),
-      page_subtitle: Skill.localized_description(skill, lang),
-      page_action: %{
-        icon: "hero-pencil",
-        label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
-        navigate: Paths.edit_skill(skill.uuid)
-      }
-    ]
+    Helpers.section_assigns() ++
+      [
+        page_crumbs: [%{label: gettext("Skills"), path: Paths.skills()}],
+        page_title: Skill.localized_name(skill, lang),
+        page_subtitle: Skill.localized_description(skill, lang),
+        page_action: %{
+          icon: "hero-pencil",
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
+          navigate: Paths.edit_skill(skill.uuid)
+        }
+      ]
   end
 
   @impl true

@@ -6,7 +6,7 @@ Guidance for AI agents working on `phoenix_kit_staff`.
 
 Org-structure backbone for a PhoenixKit host: departments, teams, people (each linked 1:1 to a `PhoenixKit.Users.Auth.User`), a translatable skill taxonomy with per-person assignments, and a per-person employment history. Implements the `PhoenixKit.Module` behaviour for auto-discovery.
 
-- **Depends on:** `phoenix_kit` `~> 2.0` (Hex); `phoenix_kit_comments` `~> 0.3` (hard, compile-time: `PersonShowLive` does `use PhoenixKitComments.Embed` and embeds the comment thread). Soft, runtime-only: `phoenix_kit_locations` (resolved with `Code.ensure_loaded/1`; never a mix dep).
+- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex — the release that carries `PhoenixKitWeb.Actor`, `Activity.log/3`, `Storage.ResourceFolders` and the reorganizer's `ResourceSource`; the compound form keeps the ceiling open across later 2.x minors); `phoenix_kit_comments` `~> 0.3` (hard, compile-time: `PersonShowLive` does `use PhoenixKitComments.Embed` and embeds the comment thread). Soft, runtime-only: `phoenix_kit_locations` (resolved with `Code.ensure_loaded/1`; never a mix dep).
 - **Consumed by:** `phoenix_kit_projects` (optional dep; reads the staff tables through its own read-only shadow schemas `PhoenixKitProjects.People.*` and calls only `PhoenixKitStaff.enabled?/0`, for admin-UI affordances) and `phoenix_kit_crm` (`StaffLink`; no mix dep; `apply/3` into `enabled?/0`, `Paths.person/1`, `Staff.list_people/1`, `Staff.get_person/1`, `Schemas.Person.display_name/1` when the module is loaded and enabled).
 - **Admin surface:** one tab `Staff` at `/admin/staff` with visible subtabs Overview (`/admin/staff`; org tree, upcoming birthdays), Departments (`/admin/staff/departments`), Teams (`/admin/staff/teams`), Staff (`/admin/staff/people`), Skills (`/admin/staff/skills`); hidden `…/new`, `…/:id`, `…/:id/edit` subtabs per resource.
 - **Module key** `"staff"`; settings prefix `staff_`.
@@ -76,8 +76,8 @@ Repo-local aliases:
 
 ### Activity logging
 
-- Every mutation logs through the `PhoenixKitStaff.Activity` wrapper (`log/2`); never call `PhoenixKit.Activity.log/1` directly. The wrapper carries the `Code.ensure_loaded?` guard, rescue and `:exit` catch, so it never crashes the caller.
-- Logging happens at the **LiveView layer** on success: the LiveView owns `actor_uuid` (`Activity.actor_uuid(socket)` reads `@phoenix_kit_current_user`) and user intent; contexts stay pure.
+- Every mutation logs through the `PhoenixKitStaff.Activity` wrapper (`log/2`), which is core's never-raising `PhoenixKit.Activity.log/3` under the `"staff"` module key.
+- Logging happens at the **LiveView layer** on success: the LiveView owns `actor_uuid` (`Activity.actor_uuid(socket)` is core's `PhoenixKitWeb.Actor` — the scope first, then the bare current user) and user intent; contexts stay pure.
 - The failure side is logged too: `{:error, _}` branches of `handle_event` call `Web.Helpers.log_operation_error/3` with the same action string, `metadata.db_pending: true`, and PII-safe metadata (changeset error **keys** only, atom reasons as strings, everything else `error_kind: "other"`). Validate cycles never log.
 - Action strings follow `"staff.<resource>_<verb>"`:
   - `staff.person_created/updated/deleted`, `staff.person_trashed/restored`, `staff.people_bulk_trashed/restored/deleted`
@@ -92,7 +92,7 @@ Repo-local aliases:
 - Department, Team, Person, Skill and Employment carry a `translations` JSONB holding **non-primary-language overrides only** (`%{"es-ES" => %{"name" => "…"}}`); primary values stay in their columns.
 - Translatable fields: Department/Team/Skill `name` + `description`; Person `job_title`, `bio`, `notes` (not `name`, not `work_location`); Employment `job_title`.
 - Reads go through `<Schema>.localized_<field>/2` (primary fallback). Changesets validate the shape with `L10n.valid_translations_shape?/1`.
-- Forms use core `PhoenixKitWeb.Components.MultilangForm` (`<.multilang_tabs>`, `<.multilang_fields_wrapper>`, `<.translatable_field>`); `Web.Helpers.merge_translations_attrs/3` folds the per-language params back into `translations`.
+- Forms use core `PhoenixKitWeb.Components.MultilangForm` (`<.multilang_tabs>`, `<.multilang_fields_wrapper>`, `<.translatable_field>`); `Web.Helpers.merge_translations_attrs/3` folds the per-language params back into `translations`. An `:edit` form opens on the viewing language (`mount_multilang(open_on: :viewing_language)`); `:new` opens on the main language, which holds the required fields.
 
 ### Skills
 
@@ -117,7 +117,7 @@ Repo-local aliases:
 - Optional host hook `config :phoenix_kit_staff, :attachments_parent_folder, {Mod, :fun}` (`fun(:person, actor_uuid, person_uuid)` or `fun(:person, actor_uuid)` → `{:ok, parent_uuid}` | `nil`) places **new** root folders under a parent. Lookups never depend on the hook's answer: the root folder is resolved by its person-unique name (configured parent, then root, then any parent), and purge removes every folder with that name, so an actor-dependent hook can't strand or twin-leak media.
 - `PersonMediaComponent` (`kind: :files | :images`) opens core's `MediaSelectorModal` scoped to the folder. Both tabs are gated on `Storage.enabled?()` (rescued) at the tab and in every mutation handler; `valid_tabs/2` clamps deep links.
 - Removal is non-destructive: soft-trash a sole-owner file, unlink a shared one, never hard delete. Permanent person delete purges the folder subtree (`Attachments.purge_person_media/1`); soft-trash keeps the files.
-- Avatar is a single pointer in `Person.metadata["avatar_uuid"]` (no column) via `Attachments.{avatar_uuid, avatar_file, avatar_url, set_avatar, clear_avatar}`; metadata writes merge, never clobber other keys; `set_avatar/2` refuses a trashed person. `PersonShowLive` hosts the picker and logs `staff.person_avatar_set/removed`.
+- Avatar is a single pointer in `Person.metadata["avatar_uuid"]` (no column) via `Attachments.{avatar_uuid, avatar_file, avatar_url, set_avatar, clear_avatar}`; the pointer is written as one key through core's `ResourceFolders.point_at/6` / `write_pointer/4`, never by replacing the metadata map from a struct (a stale one drops keys written since, such as `trashed_from_status`); `set_avatar/2` refuses a trashed person and any file that is not a live image in the person's own `Images` folder (the media tab's "set as avatar" sends a client-side uuid), checked and written under the file's row lock. `PersonShowLive` hosts the picker and logs `staff.person_avatar_set/removed`.
 
 ### Soft-delete (people)
 
@@ -150,7 +150,7 @@ Repo-local aliases:
 ```
 lib/phoenix_kit_staff.ex                # PhoenixKit.Module: key, enabled?, tabs, __tab_label_strings__
 lib/phoenix_kit_staff/
-├── activity.ex                         # Activity wrapper (log/2, actor_uuid/1); never call core directly
+├── activity.ex                         # Activity wrapper (log/2 under "staff", actor_uuid/1)
 ├── activity_labels.ex                  # Events-tab humanizer (action → {icon, label})
 ├── attachments.ex                      # Folder-scoped person media + avatar pointer
 ├── departments.ex / teams.ex           # CRUD contexts (list/1, get/1, create/1, update/2, delete/1)
@@ -219,7 +219,7 @@ Test DB `phoenix_kit_staff_test`. Three levels: unit (`test/phoenix_kit_staff/`,
 
 - `test/test_helper.exs` starts the test Repo and builds the schema with `PhoenixKit.Migration.ensure_current/2` on every boot, so newly shipped core migrations apply without a setup step; then starts `PhoenixKit.PubSub.Manager`, `PhoenixKit.Users.RateLimiter.Backend`, pins the URL prefix to `/` and starts the test Endpoint (`server: false`). When `psql` reports no database or the Repo cannot start, `:integration` is excluded and `mix test` still passes. `mix test --exclude integration` runs unit only.
 - Support (`test/support/`): `data_case.ex` (sandbox; `fixture_department/team/person/skill/skill_with_levels/skill_with_selectors/employment`; `errors_on/1`), `live_case.ex` (`fake_scope/1`, `put_test_scope/2`; reuses the fixtures), `activity_log_assertions.ex` (`assert_activity_logged/2`, `refute_activity_logged/2`, imported into both cases), a minimal `Test.Repo`, `Test.Endpoint`, `Test.Router` (scope `/en/admin/staff`, live_session `:staff_test`), `Test.Layouts`, and `Test.Hooks` (`:assign_scope` on_mount).
-- Rules kept as tests: `test/core_pin_conformance_test.exs` (the `:phoenix_kit` pin stays a two-segment `~> 2.0`; a three-segment pin excludes the next core minor and breaks hosts' `mix deps.get`; a committed `path:` dep fails it too) and `test/schema_prefix_conformance_test.exs` (every table-backed schema uses `PhoenixKit.SchemaPrefix`).
+- Rules kept as tests: `test/core_pin_conformance_test.exs` (the `:phoenix_kit` pin keeps the compound `>= 2.38.0 and < 3.0.0` form — patch-precise floor, open ceiling; a three-segment pin excludes the next core minor and breaks hosts' `mix deps.get`; a committed `path:` dep fails it too) and `test/schema_prefix_conformance_test.exs` (every table-backed schema uses `PhoenixKit.SchemaPrefix`).
 - Env honoured (`config/test.exs`): `PGUSER` / `PGPASSWORD` (default `postgres` / `postgres`), `PGHOST`, `PGDATABASE` (overrides the DB name), `PGPOOL` (pool size), `MIX_TEST_PARTITION`. On a brew Postgres without a `postgres` role, run `PGUSER=<your role> mix test`.
 - Known noise: `redefining module PhoenixKitStaff.Test.*` warnings at boot; the support files are compiled through `elixirc_paths` and `Code.require_file`d again by `test_helper.exs` (needed because the test runner no longer auto-loads them at helper time).
 

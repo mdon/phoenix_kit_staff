@@ -24,7 +24,7 @@ defmodule PhoenixKitStaff.Web.SkillFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
-  alias PhoenixKitStaff.{Activity, Paths, Skills}
+  alias PhoenixKitStaff.{Activity, L10n, Paths, Skills}
   alias PhoenixKitStaff.Schemas.Skill
   alias PhoenixKitStaff.Web.Helpers
 
@@ -40,7 +40,9 @@ defmodule PhoenixKitStaff.Web.SkillFormLive do
   def mount(params, _session, socket) do
     socket =
       socket
-      |> mount_multilang()
+      |> mount_multilang(
+        open_on: if(socket.assigns.live_action == :edit, do: :viewing_language, else: :primary)
+      )
       |> apply_action(socket.assigns.live_action, params)
 
     {:ok, socket}
@@ -50,7 +52,9 @@ defmodule PhoenixKitStaff.Web.SkillFormLive do
     skill = %Skill{}
 
     socket
+    |> assign(Helpers.section_assigns())
     |> assign(
+      page_crumbs: [%{label: gettext("Skills"), path: Paths.skills()}],
       page_title: gettext("New skill"),
       page_subtitle: gettext("Create a new skill."),
       skill: skill,
@@ -68,9 +72,16 @@ defmodule PhoenixKitStaff.Web.SkillFormLive do
         |> push_navigate(to: Paths.skills())
 
       skill ->
+        lang = L10n.current_content_lang()
+
         socket
+        |> assign(Helpers.section_assigns())
         |> assign(
-          page_title: gettext("Edit %{name}", name: skill.name),
+          page_crumbs: [
+            %{label: gettext("Skills"), path: Paths.skills()},
+            %{label: Skill.localized_name(skill, lang), path: Paths.skill(skill.uuid)}
+          ],
+          page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
           page_subtitle: gettext("Update skill details."),
           skill: skill,
           live_action: :edit,

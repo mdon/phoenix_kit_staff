@@ -67,7 +67,7 @@ defmodule PhoenixKitStaff.Web.PersonMediaComponent do
   # Set one of the person's images as the avatar. The host (PersonShowLive)
   # owns the header avatar, so notify it to reload after the metadata write.
   def handle_event("set_as_avatar", %{"uuid" => uuid}, socket) do
-    case Attachments.set_avatar(socket.assigns.person, uuid) do
+    case Attachments.set_avatar(socket.assigns.person, uuid, PhoenixKitWeb.Actor.uuid(socket)) do
       {:ok, _} ->
         Activity.log("staff.person_avatar_set",
           actor_uuid: Activity.actor_uuid(socket),
@@ -83,7 +83,14 @@ defmodule PhoenixKitStaff.Web.PersonMediaComponent do
          |> assign(:avatar_uuid, uuid)
          |> put_flash_safe(:info, gettext("Profile photo updated."))}
 
-      {:error, _} ->
+      {:error, reason} ->
+        Helpers.log_operation_error("staff.person_avatar_set", socket,
+          reason: reason,
+          resource_type: "staff_person",
+          resource_uuid: socket.assigns.person.uuid,
+          metadata: %{"file_uuid" => uuid}
+        )
+
         {:noreply, put_flash_safe(socket, :error, gettext("Could not set the photo."))}
     end
   end
@@ -111,14 +118,18 @@ defmodule PhoenixKitStaff.Web.PersonMediaComponent do
   end
 
   # If the removed image was the avatar, clear the pointer so the header
-  # doesn't reference a trashed file, and tell the host to refresh.
+  # doesn't reference a removed file — decided by the row, not this tab's
+  # copy, which another session may have outdated — and tell the host when
+  # it changed.
   defp maybe_clear_avatar(socket, uuid) do
-    if uuid == socket.assigns[:avatar_uuid] do
-      Attachments.clear_avatar(socket.assigns.person)
-      send(self(), {:avatar_changed})
-      assign(socket, :avatar_uuid, nil)
-    else
-      socket
+    case Attachments.clear_avatar(socket.assigns.person, uuid) do
+      {:ok, fresh} ->
+        avatar = Attachments.avatar_uuid(fresh)
+        if avatar != socket.assigns[:avatar_uuid], do: send(self(), {:avatar_changed})
+        assign(socket, :avatar_uuid, avatar)
+
+      {:error, _} ->
+        socket
     end
   end
 

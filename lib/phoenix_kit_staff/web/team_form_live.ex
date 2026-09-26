@@ -6,7 +6,7 @@ defmodule PhoenixKitStaff.Web.TeamFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
 
-  alias PhoenixKitStaff.{Activity, Departments, Paths, Teams}
+  alias PhoenixKitStaff.{Activity, Departments, L10n, Paths, Teams}
   alias PhoenixKitStaff.Schemas.Team
   alias PhoenixKitStaff.Web.Helpers
 
@@ -16,7 +16,9 @@ defmodule PhoenixKitStaff.Web.TeamFormLive do
 
     socket =
       socket
-      |> mount_multilang()
+      |> mount_multilang(
+        open_on: if(socket.assigns.live_action == :edit, do: :viewing_language, else: :primary)
+      )
       |> assign(dept_options: Enum.map(departments, &{&1.name, &1.uuid}))
       |> apply_action(socket.assigns.live_action, params)
 
@@ -27,7 +29,9 @@ defmodule PhoenixKitStaff.Web.TeamFormLive do
     team = %Team{}
 
     socket
+    |> assign(Helpers.section_assigns())
     |> assign(
+      page_crumbs: [%{label: gettext("Teams"), path: Paths.teams()}],
       page_title: gettext("New team"),
       page_subtitle: gettext("Create a new team within a department."),
       team: team,
@@ -44,9 +48,16 @@ defmodule PhoenixKitStaff.Web.TeamFormLive do
         |> push_navigate(to: Paths.teams())
 
       team ->
+        lang = L10n.current_content_lang()
+
         socket
+        |> assign(Helpers.section_assigns())
         |> assign(
-          page_title: gettext("Edit %{name}", name: team.name),
+          page_crumbs: [
+            %{label: gettext("Teams"), path: Paths.teams()},
+            %{label: Team.localized_name(team, lang), path: Paths.team(team.uuid)}
+          ],
+          page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit"),
           page_subtitle: gettext("Update team details."),
           team: team,
           live_action: :edit

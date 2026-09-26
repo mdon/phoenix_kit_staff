@@ -37,7 +37,9 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
         # it's always loadable — only the runtime feature flag gates the tab.
         {:ok,
          socket
+         |> assign(Helpers.section_assigns())
          |> assign(
+           page_crumbs: [%{label: gettext("Staff"), path: Paths.people()}],
            page_title: Person.display_name(person),
            person: person,
            memberships: Staff.list_memberships_for_person(person.uuid),
@@ -65,12 +67,23 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
   end
 
   defp set_avatar(socket, file_uuid) do
-    case Attachments.set_avatar(socket.assigns.person, file_uuid) do
+    case Attachments.set_avatar(
+           socket.assigns.person,
+           file_uuid,
+           PhoenixKitWeb.Actor.uuid(socket)
+         ) do
       {:ok, _} ->
         log_avatar(socket, "set")
         socket |> reload_person() |> put_flash(:info, gettext("Profile photo updated."))
 
-      {:error, _} ->
+      {:error, reason} ->
+        Helpers.log_operation_error("staff.person_avatar_set", socket,
+          reason: reason,
+          resource_type: "staff_person",
+          resource_uuid: socket.assigns.person.uuid,
+          metadata: %{"file_uuid" => file_uuid}
+        )
+
         put_flash(socket, :error, gettext("Could not set the photo."))
     end
   end
@@ -136,6 +149,7 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
         {:noreply,
          socket
          |> assign(
+           page_title: Person.display_name(person),
            person: person,
            memberships: Staff.list_memberships_for_person(person.uuid)
          )
@@ -207,12 +221,18 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
   end
 
   def handle_event("remove_avatar", _params, socket) do
+    # Clears only the one this page shows; one set elsewhere since stays.
     case Attachments.clear_avatar(socket.assigns.person) do
-      {:ok, _} ->
-        log_avatar(socket, "removed")
+      {:ok, fresh} ->
+        if Attachments.avatar_uuid(fresh) == nil do
+          log_avatar(socket, "removed")
 
-        {:noreply,
-         socket |> reload_person() |> put_flash(:info, gettext("Profile photo removed."))}
+          {:noreply,
+           socket |> reload_person() |> put_flash(:info, gettext("Profile photo removed."))}
+        else
+          # Another session set a new one since this page loaded: show it.
+          {:noreply, reload_person(socket)}
+        end
 
       {:error, reason} ->
         Helpers.log_operation_error("staff.person_avatar_removed", socket,
