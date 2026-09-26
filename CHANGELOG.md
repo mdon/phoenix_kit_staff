@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.9.0 - 2026-09-26
+
+### Changed
+
+- Requires `phoenix_kit` `>= 2.38.0 and < 3.0.0`. The module now runs on core's shared toolkits: activity logging goes through `PhoenixKit.Activity.log/3` and the actor through `PhoenixKitWeb.Actor` (the scope first, then the current user); person media folders, attach/detach, listing and purge go through `Storage.ResourceFolders`; the media reorganizer is a `Reorganizer.ResourceSource` spec (it never proposes host folder names); file icons and sizes come from `Utils.Format`.
+- Edit forms open on the language the page is viewed in; new-record forms still open on the main language.
+- Every staff page shows the standard admin header trail (Staff / list / record). A team's department is shown as a link on the team page instead of as the header section.
+- `Attachments.set_avatar/3` takes the acting user, and `Attachments.clear_avatar/2` takes the file uuid to clear.
+
+### Fixed
+
+- A person's avatar only accepts a live image in that person's own `Images` folder. The media tab's "set as avatar" sends a client-side uuid, which could point the avatar at any file in storage.
+- Setting or clearing the avatar writes only the avatar key, under the file's row lock, and re-checks the person was not trashed meanwhile. It no longer replaces the metadata map from a stale struct, which dropped keys written since (such as `trashed_from_status`).
+- Removing an image no longer clears an avatar another session set since; the header refreshes only when the avatar actually changed.
+- Trash and restore read and write the stashed status in the row itself, so a key written in between survives, and two sessions trashing at once get one success and one `:already_trashed`. Both still bump `updated_at`, like their bulk variants.
+- The person form ignores a `metadata` param, and the person changeset keeps `avatar_uuid` and `trashed_from_status` as the row holds them whatever metadata map it is given.
+- A failed avatar set is logged as `staff.person_avatar_set` on the failure side.
+
 ## 0.8.6 - 2026-09-16
 
 ### Added

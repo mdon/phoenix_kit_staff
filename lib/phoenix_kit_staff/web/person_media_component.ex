@@ -67,7 +67,7 @@ defmodule PhoenixKitStaff.Web.PersonMediaComponent do
   # Set one of the person's images as the avatar. The host (PersonShowLive)
   # owns the header avatar, so notify it to reload after the metadata write.
   def handle_event("set_as_avatar", %{"uuid" => uuid}, socket) do
-    case Attachments.set_avatar(socket.assigns.person, uuid, PhoenixKitWeb.Actor.uuid(socket)) do
+    case Attachments.set_avatar(socket.assigns.person, uuid, Activity.actor_uuid(socket)) do
       {:ok, _} ->
         Activity.log("staff.person_avatar_set",
           actor_uuid: Activity.actor_uuid(socket),

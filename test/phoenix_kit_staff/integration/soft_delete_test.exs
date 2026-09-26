@@ -21,6 +21,29 @@ defmodule PhoenixKitStaff.Integration.SoftDeleteTest do
       assert Person.trashed?(trashed)
     end
 
+    test "trash and restore both bump updated_at, like their bulk variants" do
+      person = fixture_person()
+      stale = DateTime.add(person.updated_at, -3600, :second)
+
+      Repo.update_all(
+        from(p in Person, where: p.uuid == ^person.uuid),
+        set: [updated_at: stale]
+      )
+
+      assert {:ok, trashed} = Staff.trash_person(%{person | updated_at: stale})
+      assert DateTime.compare(trashed.updated_at, stale) == :gt
+      assert Staff.get_person(person.uuid).updated_at == trashed.updated_at
+
+      Repo.update_all(
+        from(p in Person, where: p.uuid == ^person.uuid),
+        set: [updated_at: stale]
+      )
+
+      assert {:ok, restored} = Staff.restore_person(%{trashed | updated_at: stale})
+      assert DateTime.compare(restored.updated_at, stale) == :gt
+      assert Staff.get_person(person.uuid).updated_at == restored.updated_at
+    end
+
     test "is idempotent-safe: already-trashed returns an error" do
       person = fixture_person()
       {:ok, trashed} = Staff.trash_person(person)

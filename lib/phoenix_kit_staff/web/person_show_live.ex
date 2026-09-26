@@ -70,7 +70,7 @@ defmodule PhoenixKitStaff.Web.PersonShowLive do
     case Attachments.set_avatar(
            socket.assigns.person,
            file_uuid,
-           PhoenixKitWeb.Actor.uuid(socket)
+           Activity.actor_uuid(socket)
          ) do
       {:ok, _} ->
         log_avatar(socket, "set")

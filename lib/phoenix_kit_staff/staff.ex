@@ -343,15 +343,16 @@ defmodule PhoenixKitStaff.Staff do
                 "jsonb_set(coalesce(?, '{}'::jsonb), '{trashed_from_status}', to_jsonb(?::text))",
                 x.metadata,
                 x.status
-              )
+              ),
+            updated_at: ^DateTime.truncate(DateTime.utc_now(), :second)
           ]
         ],
-        select: {x.status, x.metadata}
+        select: {x.status, x.metadata, x.updated_at}
       )
 
     case repo().update_all(query, []) do
-      {1, [{status, metadata}]} ->
-        updated = %{p | status: status, metadata: metadata}
+      {1, [{status, metadata, updated_at}]} ->
+        updated = %{p | status: status, metadata: metadata, updated_at: updated_at}
         StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
         {:ok, updated}
 
@@ -383,15 +384,16 @@ defmodule PhoenixKitStaff.Staff do
                 type(^Person.statuses(), {:array, :string}),
                 x.metadata
               ),
-            metadata: fragment("coalesce(?, '{}'::jsonb) - 'trashed_from_status'", x.metadata)
+            metadata: fragment("coalesce(?, '{}'::jsonb) - 'trashed_from_status'", x.metadata),
+            updated_at: ^DateTime.truncate(DateTime.utc_now(), :second)
           ]
         ],
-        select: {x.status, x.metadata}
+        select: {x.status, x.metadata, x.updated_at}
       )
 
     case repo().update_all(query, []) do
-      {1, [{status, metadata}]} ->
-        updated = %{p | status: status, metadata: metadata}
+      {1, [{status, metadata, updated_at}]} ->
+        updated = %{p | status: status, metadata: metadata, updated_at: updated_at}
         StaffPubSub.broadcast_person(:person_updated, %{uuid: updated.uuid})
         {:ok, updated}
 

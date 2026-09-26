@@ -209,16 +209,6 @@ defmodule PhoenixKitStaff.Web.PeopleLive do
 
       {:error, :already_trashed} ->
         put_flash(socket, :error, gettext("This staff is already in the trash."))
-
-      {:error, reason} ->
-        Helpers.log_operation_error("staff.person_trashed", socket,
-          reason: reason,
-          resource_type: "staff_person",
-          resource_uuid: person.uuid,
-          target_uuid: person.user_uuid
-        )
-
-        put_flash(socket, :error, gettext("Could not move staff to trash."))
     end
   end
 
@@ -237,16 +227,6 @@ defmodule PhoenixKitStaff.Web.PeopleLive do
 
       {:error, :not_trashed} ->
         put_flash(socket, :error, gettext("This staff isn't in the trash."))
-
-      {:error, reason} ->
-        Helpers.log_operation_error("staff.person_restored", socket,
-          reason: reason,
-          resource_type: "staff_person",
-          resource_uuid: person.uuid,
-          target_uuid: person.user_uuid
-        )
-
-        put_flash(socket, :error, gettext("Could not restore staff."))
     end
   end
 
